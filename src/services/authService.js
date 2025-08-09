@@ -145,3 +145,19 @@ export const getUserAccessedNotes = async (userId) => {
     return { notes: [], error: error.message };
   }
 };
+export const checkAdminStatus = async (userId) => {
+  try {
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
+
+    if (userSnap.exists()) {
+      const data = userSnap.data();
+      return { isAdmin: !!data.isAdmin, error: null };
+    } else {
+      return { isAdmin: false, error: "User not found" };
+    }
+  } catch (error) {
+    console.error("Error checking admin status:", error);
+    return { isAdmin: false, error: error.message };
+  }
+};
