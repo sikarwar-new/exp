@@ -122,6 +122,9 @@ const createUserDocument = async (user, additionalData = {}) => {
         createdAt,
         isEligible: false,
         notesUploaded: [],
+        pendingNotes: [],
+        approvedNotes: [],
+        earnings: 0,
         ...additionalData
       });
     } catch (error) {

@@ -12,6 +12,7 @@ import {
   orderBy,
   arrayUnion,
   arrayRemove,
+  increment,
 } from "firebase/firestore";
 import { db } from "../config/firebase";
 
