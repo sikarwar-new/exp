@@ -20,8 +20,11 @@ import { db } from "../config/firebase";
 export const getAllNotes = async () => {
   try {
     const notesRef = collection(db, "notes");
-    const notesSnap = await getDocs(notesRef);
-    const notes = notesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const querySnapshot = await getDocs(query(notesRef, where("status", "==", "approved"), orderBy("createdAt", "desc")));
+    const notes = [];
+    querySnapshot.forEach((doc) => {
+      notes.push({ id: doc.id, ...doc.data() });
+    });
     return { notes, error: null };
   } catch (error) {
     console.error("Error getting notes:", error);
@@ -99,9 +102,18 @@ export const getNotesByFilter = async (filters = {}) => {
     if (filters.branch) {
       q = query(q, where("branch", "==", filters.branch.trim()));
     }
+    if (filters.semester) {
+      q = query(q, where("semester", "==", filters.semester.trim()));
+    }
 
-    const notesSnap = await getDocs(q);
-    const notes = notesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // Order results
+    q = query(q, orderBy("createdAt", "desc"));
+
+    const querySnapshot = await getDocs(q);
+    const notes = [];
+    querySnapshot.forEach((doc) => {
+      notes.push({ id: doc.id, ...doc.data() });
+    });
 
     return { notes, error: null };
   } catch (error) {

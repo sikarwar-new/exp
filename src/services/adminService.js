@@ -20,12 +20,15 @@ import { db } from "../config/firebase";
 export const getAllNotes = async () => {
   try {
     const notesRef = collection(db, "notes");
-    const notesSnap = await getDocs(notesRef);
-    const notes = notesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const querySnapshot = await getDocs(query(notesRef, where("status", "==", "approved")));
+    const notes = [];
+    querySnapshot.forEach((doc) => {
+      notes.push({ id: doc.id, ...doc.data() });
+    });
     return { notes, error: null };
   } catch (error) {
     console.error("Error getting notes:", error);
-    return { notes: [], error: error.message };
+    return { error: error.message };
   }
 };
 
@@ -99,9 +102,18 @@ export const getNotesByFilter = async (filters = {}) => {
     if (filters.branch) {
       q = query(q, where("branch", "==", filters.branch.trim()));
     }
+    if (filters.semester) {
+      q = query(q, where("semester", "==", filters.semester.trim()));
+    }
 
-    const notesSnap = await getDocs(q);
-    const notes = notesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // Order results
+    q = query(q, orderBy("createdAt", "desc"));
+
+    const querySnapshot = await getDocs(q);
+    const notes = [];
+    querySnapshot.forEach((doc) => {
+      notes.push({ id: doc.id, ...doc.data() });
+    });
 
     return { notes, error: null };
   } catch (error) {
@@ -174,11 +186,12 @@ export const getUserAccessedNotes = async (userId) => {
     }
     
     const userData = userSnap.data();
-    const notes = userData.accessedNotes || [];
+    const accessedNotes = userData.accessedNotes || [];
 
-    return { notes, error: null };
+    return { notes: accessedNotes, error: null };
   } catch (error) {
-    console.error("Error getting accessed notes:", error);
+    console.error("Error getting user accessed notes:", error);
     return { notes: [], error: error.message };
   }
 };
+    

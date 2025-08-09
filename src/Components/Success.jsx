@@ -20,7 +20,15 @@ import { db } from "../config/firebase";
 export const getAllNotes = async () => {
   try {
     const notesRef = collection(db, "notes");
-    return { error: error.message };
+    const querySnapshot = await getDocs(query(notesRef, where("status", "==", "approved"), orderBy("createdAt", "desc")));
+    const notes = [];
+    querySnapshot.forEach((doc) => {
+      notes.push({ id: doc.id, ...doc.data() });
+    });
+    return { notes, error: null };
+  } catch (error) {
+    console.error("Error getting notes:", error);
+    return { notes: [], error: error.message };
   }
 };
 
@@ -71,28 +79,6 @@ export const getUserNoteStatus = async (userId) => {
   } catch (error) {
     console.error("Error getting user note status:", error);
     return { pendingNotes: [], approvedNotes: [], error: error.message };
-  }
-};
-
-// Add note to user's pending notes
-export const addToPendingNotes = async (userId, noteData) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    await updateDoc(userRef, {
-      pendingNotes: arrayUnion(noteData),
-      updatedAt: new Date(),
-    });
-    return { error: null };
-  } catch (error) {
-    console.error("Error adding to pending notes:", error);
-    return { error: error.message };
-  }
-};
-
-    return { notes, error: null };
-  } catch (error) {
-    console.error("Error getting notes:", error);
-    return { notes: [], error: error.message };
   }
 };
 
@@ -192,6 +178,15 @@ export const updateUserEligibility = async (userId, isEligible) => {
 };
 export const getUserAccessedNotes = async (userId) => {
   try {
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return { notes: [], error: "User not found" };
+    }
+    
+    const userData = userSnap.data();
+    const notes = userData.accessedNotes || [];
 
     return { notes, error: null };
   } catch (error) {
