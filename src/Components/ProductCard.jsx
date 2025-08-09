@@ -1,134 +1,173 @@
-import React, { useEffect, useState } from "react";
-import { useCart } from "../contexts/CartContext";
-import { useAuth } from "../contexts/AuthContext";
-import { collection, query, where, getDocs } from "firebase/firestore";
+// Notes service functions for Firestore operations
+import {
+  collection,
+  doc,
+  getDocs,
+  getDoc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
+  orderBy,
+  arrayUnion,
+  arrayRemove,
+  increment,
+} from "firebase/firestore";
 import { db } from "../config/firebase";
 
-const Card = ({
-  title,
-  subject,
-  numRatings,
-  price,
-  driveLink, // Pass the drive link as prop to redirect if accessed
-  btn = "Add to Cart",
-  isBought = false,
-}) => {
-  const { addToCart, removeFromCart, isInCart } = useCart();
-  const { currentUser } = useAuth();
-
-  const [accessStatus, setAccessStatus] = useState(null); // 'approved', 'pending', 'denied' or null
-
-  const alreadyInCart = isInCart(title);
-
-  useEffect(() => {
-    if (!currentUser) {
-      setAccessStatus(null);
-      return;
-    }
-
-    const fetchAccessStatus = async () => {
-      try {
-        // Query accessRequests where userId == currentUser.uid and requestedNotes contains this title
-        const accessReqRef = collection(db, "accessRequests");
-        const q = query(
-          accessReqRef,
-          where("userId", "==", currentUser.uid),
-          where("requestedNotes", "array-contains", { title })
-        );
-
-        const querySnapshot = await getDocs(q);
-
-        let statusFound = null;
-
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          // Check if requestedNotes includes the note with this title
-          const requestedNote = data.requestedNotes.find(
-            (note) => note.title === title
-          );
-
-          if (requestedNote) {
-            // Take the highest status if multiple requests exist for the same note
-            if (data.status === "approved") statusFound = "approved";
-            else if (data.status === "pending" && statusFound !== "approved")
-              statusFound = "pending";
-            else if (
-              data.status === "denied" &&
-              statusFound !== "approved" &&
-              statusFound !== "pending"
-            )
-              statusFound = "denied";
-          }
-        });
-
-        setAccessStatus(statusFound);
-      } catch (error) {
-        console.error("Error fetching access status:", error);
-        setAccessStatus(null);
-      }
-    };
-
-    fetchAccessStatus();
-  }, [currentUser, title]);
-
-  const handleClick = () => {
-    if (alreadyInCart) {
-      removeFromCart(title);
-    } else {
-      addToCart({ title, subject, numRatings, price, driveLink });
-    }
-  };
-
-  // Redirect to drive if access granted or pending
-  const handleAccessClick = () => {
-    if (driveLink) {
-      window.open(driveLink, "_blank");
-    } else {
-      alert("Drive link not available");
-    }
-  };
-
-  // Button content and action depends on access status and cart state
-  let buttonText = btn;
-  let buttonAction = handleClick;
-  let buttonClasses =
-    "w-full py-2 px-4 rounded-md text-sm font-medium transition-colors duration-150 bg-orange-500 text-white hover:bg-orange-600";
-
-  if (isBought) {
-    buttonText = "Start Reading";
-    buttonAction = () => {
-      if (driveLink) window.open(driveLink, "_blank");
-      else alert("Drive link not available");
-    };
-    buttonClasses =
-      "w-full py-2 px-4 rounded-md text-sm font-medium transition-colors duration-150 bg-gray-200 text-gray-700 hover:bg-gray-300";
-  } else if (accessStatus === "approved" || accessStatus === "pending") {
-    buttonText = "Access";
-    buttonAction = handleAccessClick;
-    buttonClasses =
-      "w-full py-2 px-4 rounded-md text-sm font-medium transition-colors duration-150 bg-green-600 text-white hover:bg-green-700";
-  } else if (alreadyInCart) {
-    buttonText = "Remove Item";
-    buttonAction = handleClick;
-    buttonClasses =
-      "w-full py-2 px-4 rounded-md text-sm font-medium transition-colors duration-150 bg-red-500 text-white hover:bg-red-600";
+// Get all approved notes for regular users
+export const getAllNotes = async () => {
+  try {
+    const notesRef = collection(db, "notes");
+    return { error: error.message };
   }
-
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow duration-200">
-      <h3 className="text-lg font-medium text-gray-900 mb-1">{title}</h3>
-      <p className="text-sm text-gray-500 mb-1">{subject}</p>
-      <p className="text-xs text-gray-400 mb-3">⭐ {numRatings} ratings</p>
-
-      {!isBought && (
-        <p className="text-md font-semibold text-green-600 mb-4">₹{price}</p>
-      )}
-
-      <button onClick={buttonAction} className={buttonClasses}>
-        {buttonText}
-      </button>
-    </div>
-  );
 };
 
-export default Card;
+// Move note from pending to approved and update uploader earnings
+export const approveUserNote = async (userId, noteData) => {
+  try {
+    const userRef = doc(db, "users", userId);
+    
+    // Remove from pendingNotes and add to approvedNotes
+    await updateDoc(userRef, {
+      pendingNotes: arrayRemove(noteData),
+      approvedNotes: arrayUnion(noteData),
+      updatedAt: new Date(),
+    });
+
+    // Update uploader's earnings
+    if (noteData.uploadedBy) {
+      const uploaderRef = doc(db, "users", noteData.uploadedBy);
+      await updateDoc(uploaderRef, {
+        earnings: increment(5),
+        updatedAt: new Date(),
+      });
+    }
+
+    return { error: null };
+  } catch (error) {
+    console.error("Error approving user note:", error);
+    return { error: error.message };
+  }
+};
+
+// Get user's pending and approved notes
+export const getUserNoteStatus = async (userId) => {
+  try {
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return { pendingNotes: [], approvedNotes: [], error: "User not found" };
+    }
+    
+    const userData = userSnap.data();
+    return {
+      pendingNotes: userData.pendingNotes || [],
+      approvedNotes: userData.approvedNotes || [],
+      error: null
+    };
+  } catch (error) {
+    console.error("Error getting user note status:", error);
+    return { pendingNotes: [], approvedNotes: [], error: error.message };
+  }
+};
+
+    return { notes, error: null };
+  } catch (error) {
+    console.error("Error getting notes:", error);
+    return { notes: [], error: error.message };
+  }
+};
+
+// Get notes by filters
+export const getNotesByFilter = async (filters = {}) => {
+  try {
+    const notesRef = collection(db, "notes");
+    let q = query(notesRef);
+
+    // Always filter by status if provided
+    if (filters.status) {
+      q = query(q, where("status", "==", filters.status.trim()));
+    } else {
+      q = query(q, where("status", "==", "approved"));
+    }
+
+    // Apply filters safely
+    if (filters.year) {
+      q = query(q, where("year", "==", filters.year.trim()));
+    }
+    if (filters.branch) {
+      q = query(q, where("branch", "==", filters.branch.trim()));
+    }
+
+    return { notes, error: null };
+  } catch (error) {
+    console.error("Error getting filtered notes:", error);
+    return { notes: [], error: error.message };
+  }
+};
+
+// Get user's uploaded notes
+export const getUserUploadedNotes = async (userId) => {
+  try {
+    // Get user document to access approvedNotes
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return { notes: [], error: "User not found" };
+    }
+    
+    const userData = userSnap.data();
+    const approvedNotes = userData.approvedNotes || [];
+
+    return { notes: approvedNotes, error: null };
+  } catch (error) {
+    console.error("Error getting user uploaded notes:", error);
+    return { notes: [], error: error.message };
+  }
+};
+
+// Create a new note (for users)
+export const createNote = async (noteData, userId) => {
+  try {
+    const notesRef = collection(db, "notes");
+    const docRef = await addDoc(notesRef, {
+      ...noteData,
+      uploadedBy: userId,
+      status: "pending",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    return { noteId: docRef.id, error: null };
+  } catch (error) {
+    console.error("Error creating note:", error);
+    return { noteId: null, error: error.message };
+  }
+};
+
+// Update user eligibility
+export const updateUserEligibility = async (userId, isEligible) => {
+  try {
+    const userRef = doc(db, "users", userId);
+    await updateDoc(userRef, {
+      isEligible: isEligible,
+      updatedAt: new Date(),
+    });
+    return { error: null };
+  } catch (error) {
+    console.error("Error updating user eligibility:", error);
+    return { error: error.message };
+  }
+};
+export const getUserAccessedNotes = async (userId) => {
+  try {
+
+    return { notes, error: null };
+  } catch (error) {
+    console.error("Error getting accessed notes:", error);
+    return { notes: [], error: error.message };
+  }

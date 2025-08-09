@@ -20,18 +20,59 @@ import { db } from "../config/firebase";
 export const getAllNotes = async () => {
   try {
     const notesRef = collection(db, "notes");
-    const q = query(
-      notesRef,
-      where("status", "==", "approved"),
-      orderBy("createdAt", "desc")
-    );
+    return { error: error.message };
+  }
+};
 
-    const querySnapshot = await getDocs(q);
-
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
+// Move note from pending to approved and update uploader earnings
+export const approveUserNote = async (userId, noteData) => {
+  try {
+    const userRef = doc(db, "users", userId);
+    
+    // Remove from pendingNotes and add to approvedNotes
+    await updateDoc(userRef, {
+      pendingNotes: arrayRemove(noteData),
+      approvedNotes: arrayUnion(noteData),
+      updatedAt: new Date(),
     });
+
+    // Update uploader's earnings
+    if (noteData.uploadedBy) {
+      const uploaderRef = doc(db, "users", noteData.uploadedBy);
+      await updateDoc(uploaderRef, {
+        earnings: increment(5),
+        updatedAt: new Date(),
+      });
+    }
+
+    return { error: null };
+  } catch (error) {
+    console.error("Error approving user note:", error);
+    return { error: error.message };
+  }
+};
+
+// Get user's pending and approved notes
+export const getUserNoteStatus = async (userId) => {
+  try {
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return { pendingNotes: [], approvedNotes: [], error: "User not found" };
+    }
+    
+    const userData = userSnap.data();
+    return {
+      pendingNotes: userData.pendingNotes || [],
+      approvedNotes: userData.approvedNotes || [],
+      error: null
+    };
+  } catch (error) {
+    console.error("Error getting user note status:", error);
+    return { pendingNotes: [], approvedNotes: [], error: error.message };
+  }
+};
 
     return { notes, error: null };
   } catch (error) {
@@ -83,20 +124,18 @@ export const getNotesByFilter = async (filters = {}) => {
 // Get user's uploaded notes
 export const getUserUploadedNotes = async (userId) => {
   try {
-    const notesRef = collection(db, "notes");
-    const q = query(
-      notesRef,
-      where("uploadedBy", "==", userId),
-      orderBy("createdAt", "desc")
-    );
-    const querySnapshot = await getDocs(q);
+    // Get user document to access approvedNotes
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return { notes: [], error: "User not found" };
+    }
+    
+    const userData = userSnap.data();
+    const approvedNotes = userData.approvedNotes || [];
 
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
-    });
-
-    return { notes, error: null };
+    return { notes: approvedNotes, error: null };
   } catch (error) {
     console.error("Error getting user uploaded notes:", error);
     return { notes: [], error: error.message };
@@ -138,22 +177,9 @@ export const updateUserEligibility = async (userId, isEligible) => {
 };
 export const getUserAccessedNotes = async (userId) => {
   try {
-    const notesRef = collection(db, "notes");
-    const q = query(
-      notesRef,
-      where("accessedBy", "array-contains", userId),
-      orderBy("createdAt", "desc")
-    );
-    const querySnapshot = await getDocs(q);
-
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
-    });
 
     return { notes, error: null };
   } catch (error) {
     console.error("Error getting accessed notes:", error);
     return { notes: [], error: error.message };
   }
-};

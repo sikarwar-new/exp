@@ -1,91 +1,179 @@
-import React from "react";
-import { useCart } from "../contexts/CartContext";
-import emptyCart from "../assets/emptyCart.png";
-import { NavLink, useNavigate } from "react-router-dom";
+// Notes service functions for Firestore operations
+import {
+  collection,
+  doc,
+  getDocs,
+  getDoc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
+  orderBy,
+  arrayUnion,
+  arrayRemove,
+  increment,
+} from "firebase/firestore";
+import { db } from "../config/firebase";
 
-function Cart() {
-  const { cartItems, removeFromCart } = useCart();
-  const navigate = useNavigate();
+// Get all approved notes for regular users
+export const getAllNotes = async () => {
+  try {
+    const notesRef = collection(db, "notes");
+    return { error: error.message };
+  }
+};
 
-  const handleClearCart = () => {
-    cartItems.forEach((item) => removeFromCart(item.title));
-  };
+// Move note from pending to approved and update uploader earnings
+export const approveUserNote = async (userId, noteData) => {
+  try {
+    const userRef = doc(db, "users", userId);
+    
+    // Remove from pendingNotes and add to approvedNotes
+    await updateDoc(userRef, {
+      pendingNotes: arrayRemove(noteData),
+      approvedNotes: arrayUnion(noteData),
+      updatedAt: new Date(),
+    });
 
-  const totalPrice = cartItems.reduce(
-    (total, item) => total + item.price * (item.quantity || 1),
-    0
-  );
+    // Update uploader's earnings
+    if (noteData.uploadedBy) {
+      const uploaderRef = doc(db, "users", noteData.uploadedBy);
+      await updateDoc(uploaderRef, {
+        earnings: increment(5),
+        updatedAt: new Date(),
+      });
+    }
 
-  const handleCheckout = () => {
-    navigate("/payment", { state: { cartItems } });
-  };
+    return { error: null };
+  } catch (error) {
+    console.error("Error approving user note:", error);
+    return { error: error.message };
+  }
+};
 
-  return (
-    <div className="max-w-3xl mx-auto w-[90%] bg-white rounded-xl shadow-lg p-8 text-gray-800">
-      {cartItems.length === 0 ? (
-        <div className="flex flex-col items-center space-y-4">
-          <img className="w-40 opacity-80" src={emptyCart} alt="Empty cart" />
-          <p className="text-xl font-semibold">Your cart is empty!</p>
-          <p className="text-gray-500 text-sm">
-            Add some notes to get started.
-          </p>
-          <NavLink
-            to="/resources"
-            className="mt-4 px-6 py-2 bg-orange-500 text-white font-medium rounded hover:bg-orange-600 transition"
-          >
-            Browse Resources
-          </NavLink>
-        </div>
-      ) : (
-        <>
-          <h2 className="text-3xl font-bold mb-8 text-center text-gray-900">
-            Your Cart
-          </h2>
-          <ul className="divide-y divide-gray-200 mb-6">
-            {cartItems.map((item) => (
-              <li
-                key={item.title}
-                className="flex justify-between items-center py-4"
-              >
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    {item.title}
-                  </h3>
-                  <p className="text-sm text-gray-600">
-                    ₹{item.price} x {item.quantity || 1}
-                  </p>
-                </div>
-                <button
-                  onClick={() => removeFromCart(item.title)}
-                  className="text-sm text-red-600 hover:underline"
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
+// Get user's pending and approved notes
+export const getUserNoteStatus = async (userId) => {
+  try {
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return { pendingNotes: [], approvedNotes: [], error: "User not found" };
+    }
+    
+    const userData = userSnap.data();
+    return {
+      pendingNotes: userData.pendingNotes || [],
+      approvedNotes: userData.approvedNotes || [],
+      error: null
+    };
+  } catch (error) {
+    console.error("Error getting user note status:", error);
+    return { pendingNotes: [], approvedNotes: [], error: error.message };
+  }
+};
 
-          <div className="flex justify-between items-center border-t pt-4">
-            <p className="text-xl font-semibold">Total: ₹{totalPrice}</p>
-            <div className="flex gap-3">
-              <button
-                onClick={handleClearCart}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 text-sm font-medium"
-              >
-                Clear Cart
-              </button>
-              <button
-                onClick={handleCheckout}
-                className="px-5 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 text-sm font-semibold"
-              >
-                Checkout
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
+    return { notes, error: null };
+  } catch (error) {
+    console.error("Error getting notes:", error);
+    return { notes: [], error: error.message };
+  }
+};
 
-export default Cart;
+// Get notes by filters
+export const getNotesByFilter = async (filters = {}) => {
+  try {
+    const notesRef = collection(db, "notes");
+    let q = query(notesRef);
+
+    // Always filter by status if provided
+    if (filters.status) {
+      q = query(q, where("status", "==", filters.status.trim()));
+    } else {
+      q = query(q, where("status", "==", "approved"));
+    }
+
+    // Apply filters safely
+    if (filters.year) {
+      q = query(q, where("year", "==", filters.year.trim()));
+    }
+    if (filters.branch) {
+      q = query(q, where("branch", "==", filters.branch.trim()));
+    }
+    if (filters.semester) {
+      q = query(q, where("semester", "==", filters.semester.trim()));
+    }
+
+    // Order results
+    q = query(q, orderBy("createdAt", "desc"));
+
+    const querySnapshot = await getDocs(q);
+    const notes = [];
+    querySnapshot.forEach((doc) => {
+      notes.push({ id: doc.id, ...doc.data() });
+    });
+
+    return { notes, error: null };
+  } catch (error) {
+    console.error("Error getting filtered notes:", error);
+    return { notes: [], error: error.message };
+  }
+};
+
+// Get user's uploaded notes
+export const getUserUploadedNotes = async (userId) => {
+  try {
+    // Get user document to access approvedNotes
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return { notes: [], error: "User not found" };
+    }
+    
+    const userData = userSnap.data();
+    const approvedNotes = userData.approvedNotes || [];
+
+    return { notes: approvedNotes, error: null };
+  } catch (error) {
+    console.error("Error getting user uploaded notes:", error);
+    return { notes: [], error: error.message };
+  }
+};
+
+// Create a new note (for users)
+export const createNote = async (noteData, userId) => {
+  try {
+    const notesRef = collection(db, "notes");
+    const docRef = await addDoc(notesRef, {
+      ...noteData,
+      uploadedBy: userId,
+      status: "pending",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    return { noteId: docRef.id, error: null };
+  } catch (error) {
+    console.error("Error creating note:", error);
+    return { noteId: null, error: error.message };
+  }
+};
+
+// Update user eligibility
+export const updateUserEligibility = async (userId, isEligible) => {
+  try {
+    const userRef = doc(db, "users", userId);
+    await updateDoc(userRef, {
+      isEligible: isEligible,
+      updatedAt: new Date(),
+    });
+    return { error: null };
+  } catch (error) {
+    console.error("Error updating user eligibility:", error);
+    return { error: error.message };
+  }
+};
+export const getUserAccessedNotes = async (userId) => {
+  try {

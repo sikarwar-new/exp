@@ -1,114 +1,179 @@
-import React, { useRef, useState, useEffect } from "react";
-import { useAuth } from "../../contexts/AuthContext.jsx";
-import ProductCard from "../../Components/ProductCard.jsx";
-import UserProfileEdit from "./UserProfileEdit.jsx";
-import { getUserAccessedNotes } from "../../services/notesService.js";
+// Notes service functions for Firestore operations
+import {
+  collection,
+  doc,
+  getDocs,
+  getDoc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
+  orderBy,
+  arrayUnion,
+  arrayRemove,
+  increment,
+} from "firebase/firestore";
+import { db } from "../config/firebase";
 
-function Profile() {
-  const { user, userDoc } = useAuth();
-  const fileInputRef = useRef(null);
-  const [profilePhoto, setProfilePhoto] = useState("");
-  const [isEditOpen, setIsEditOpen] = useState(false);
-  const [accessedNotes, setAccessedNotes] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (user?.photoURL || userDoc?.photoURL) {
-      setProfilePhoto(user?.photoURL || userDoc?.photoURL);
-    }
-  }, [user, userDoc]);
-
-  useEffect(() => {
-    const fetchAccessedNotes = async () => {
-      if (user) {
-        const { notes } = await getUserAccessedNotes(user.uid);
-        setAccessedNotes(notes);
-      }
-      setLoading(false);
-    };
-
-    fetchAccessedNotes();
-  }, [user]);
-
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const imageURL = URL.createObjectURL(file);
-      setProfilePhoto(imageURL);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-orange-500"></div>
-      </div>
-    );
+// Get all approved notes for regular users
+export const getAllNotes = async () => {
+  try {
+    const notesRef = collection(db, "notes");
+    return { error: error.message };
   }
+};
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-100 via-white to-amber-50 py-12 px-6">
-      <div className="max-w-4xl mx-auto bg-gradient-to-r from-gray-800 to-gray-900 shadow-md rounded-xl p-6 flex flex-col sm:flex-row items-center gap-6">
-        <div className="relative">
-          <img
-            className="rounded-full w-28 h-28 object-cover shadow-md"
-            src={profilePhoto || "https://placehold.co/100x100?text=Profile"}
-            alt="Profile"
-          />
-        </div>
+// Move note from pending to approved and update uploader earnings
+export const approveUserNote = async (userId, noteData) => {
+  try {
+    const userRef = doc(db, "users", userId);
+    
+    // Remove from pendingNotes and add to approvedNotes
+    await updateDoc(userRef, {
+      pendingNotes: arrayRemove(noteData),
+      approvedNotes: arrayUnion(noteData),
+      updatedAt: new Date(),
+    });
 
-        <div className="text-center sm:text-left">
-          <p className="text-2xl font-bold text-white">{user?.displayName || userDoc?.displayName}</p>
-          <p className="text-gray-300 text-sm">{user?.email}</p>
-          <button
-            onClick={() => setIsEditOpen(true)}
-            className="mt-3 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg shadow"
-          >
-            Edit Profile
-          </button>
-        </div>
-      </div>
+    // Update uploader's earnings
+    if (noteData.uploadedBy) {
+      const uploaderRef = doc(db, "users", noteData.uploadedBy);
+      await updateDoc(uploaderRef, {
+        earnings: increment(5),
+        updatedAt: new Date(),
+      });
+    }
 
-      <div className="max-w-6xl mx-auto mt-10 px-4">
-        <div className="bg-indigo-100 rounded-xl px-6 py-8 shadow-inner">
-          <h3 className="mb-6 text-2xl font-semibold text-gray-800">
-            Resources Accessed
-          </h3>
-          {accessedNotes.length > 0 ? (
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-              {accessedNotes.map((note, index) => (
-                <ProductCard
-                  key={`accessed-${index}`}
-                  title={note.title}
-                  subject={note.subject || note.branch}
-                  numRatings={note.ratings?.length || 0}
-                  price={note.price}
-                  btn="Start Reading"
-                  isBought={true}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="text-gray-600 text-sm">No accessed notes yet.</p>
-          )}
-        </div>
-      </div>
+    return { error: null };
+  } catch (error) {
+    console.error("Error approving user note:", error);
+    return { error: error.message };
+  }
+};
 
-      {isEditOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-lg relative max-w-xl w-full">
-            <button
-              onClick={() => setIsEditOpen(false)}
-              className="absolute top-2 right-3 text-gray-500 hover:text-black text-2xl"
-            >
-              &times;
-            </button>
-            <UserProfileEdit />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+// Get user's pending and approved notes
+export const getUserNoteStatus = async (userId) => {
+  try {
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return { pendingNotes: [], approvedNotes: [], error: "User not found" };
+    }
+    
+    const userData = userSnap.data();
+    return {
+      pendingNotes: userData.pendingNotes || [],
+      approvedNotes: userData.approvedNotes || [],
+      error: null
+    };
+  } catch (error) {
+    console.error("Error getting user note status:", error);
+    return { pendingNotes: [], approvedNotes: [], error: error.message };
+  }
+};
 
-export default Profile;
+    return { notes, error: null };
+  } catch (error) {
+    console.error("Error getting notes:", error);
+    return { notes: [], error: error.message };
+  }
+};
+
+// Get notes by filters
+export const getNotesByFilter = async (filters = {}) => {
+  try {
+    const notesRef = collection(db, "notes");
+    let q = query(notesRef);
+
+    // Always filter by status if provided
+    if (filters.status) {
+      q = query(q, where("status", "==", filters.status.trim()));
+    } else {
+      q = query(q, where("status", "==", "approved"));
+    }
+
+    // Apply filters safely
+    if (filters.year) {
+      q = query(q, where("year", "==", filters.year.trim()));
+    }
+    if (filters.branch) {
+      q = query(q, where("branch", "==", filters.branch.trim()));
+    }
+    if (filters.semester) {
+      q = query(q, where("semester", "==", filters.semester.trim()));
+    }
+
+    // Order results
+    q = query(q, orderBy("createdAt", "desc"));
+
+    const querySnapshot = await getDocs(q);
+    const notes = [];
+    querySnapshot.forEach((doc) => {
+      notes.push({ id: doc.id, ...doc.data() });
+    });
+
+    return { notes, error: null };
+  } catch (error) {
+    console.error("Error getting filtered notes:", error);
+    return { notes: [], error: error.message };
+  }
+};
+
+// Get user's uploaded notes
+export const getUserUploadedNotes = async (userId) => {
+  try {
+    // Get user document to access approvedNotes
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return { notes: [], error: "User not found" };
+    }
+    
+    const userData = userSnap.data();
+    const approvedNotes = userData.approvedNotes || [];
+
+    return { notes: approvedNotes, error: null };
+  } catch (error) {
+    console.error("Error getting user uploaded notes:", error);
+    return { notes: [], error: error.message };
+  }
+};
+
+// Create a new note (for users)
+export const createNote = async (noteData, userId) => {
+  try {
+    const notesRef = collection(db, "notes");
+    const docRef = await addDoc(notesRef, {
+      ...noteData,
+      uploadedBy: userId,
+      status: "pending",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    return { noteId: docRef.id, error: null };
+  } catch (error) {
+    console.error("Error creating note:", error);
+    return { noteId: null, error: error.message };
+  }
+};
+
+// Update user eligibility
+export const updateUserEligibility = async (userId, isEligible) => {
+  try {
+    const userRef = doc(db, "users", userId);
+    await updateDoc(userRef, {
+      isEligible: isEligible,
+      updatedAt: new Date(),
+    });
+    return { error: null };
+  } catch (error) {
+    console.error("Error updating user eligibility:", error);
+    return { error: error.message };
+  }
+};
+export const getUserAccessedNotes = async (userId) => {
+  try {

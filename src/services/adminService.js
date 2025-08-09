@@ -1,175 +1,185 @@
-// Admin service functions for managing notes and users
-import { 
-  collection, 
-  doc, 
-  getDocs, 
-  getDoc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  where, 
+// Notes service functions for Firestore operations
+import {
+  collection,
+  doc,
+  getDocs,
+  getDoc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
   orderBy,
-  addDoc
+  arrayUnion,
+  arrayRemove,
+  increment,
 } from "firebase/firestore";
 import { db } from "../config/firebase";
-import { checkAdminStatus } from "./authService";
 
-// Check if user is admin
-export const isAdmin = async (userEmail) => {
-  return await checkAdminStatus(userEmail);
+// Get all approved notes for regular users
+export const getAllNotes = async () => {
+  try {
+    const notesRef = collection(db, "notes");
+    return { error: error.message };
+  }
 };
 
-// Get all pending notes for approval
-export const getPendingNotes = async () => {
+// Move note from pending to approved and update uploader earnings
+export const approveUserNote = async (userId, noteData) => {
   try {
-    const notesRef = collection(db, 'notes');
-    const q = query(notesRef, where('status', '==', 'pending'), orderBy('createdAt', 'desc'));
-    const querySnapshot = await getDocs(q);
+    const userRef = doc(db, "users", userId);
     
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
+    // Remove from pendingNotes and add to approvedNotes
+    await updateDoc(userRef, {
+      pendingNotes: arrayRemove(noteData),
+      approvedNotes: arrayUnion(noteData),
+      updatedAt: new Date(),
     });
+
+    // Update uploader's earnings
+    if (noteData.uploadedBy) {
+      const uploaderRef = doc(db, "users", noteData.uploadedBy);
+      await updateDoc(uploaderRef, {
+        earnings: increment(5),
+        updatedAt: new Date(),
+      });
+    }
+
+    return { error: null };
+  } catch (error) {
+    console.error("Error approving user note:", error);
+    return { error: error.message };
+  }
+};
+
+// Get user's pending and approved notes
+export const getUserNoteStatus = async (userId) => {
+  try {
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
     
+    if (!userSnap.exists()) {
+      return { pendingNotes: [], approvedNotes: [], error: "User not found" };
+    }
+    
+    const userData = userSnap.data();
+    return {
+      pendingNotes: userData.pendingNotes || [],
+      approvedNotes: userData.approvedNotes || [],
+      error: null
+    };
+  } catch (error) {
+    console.error("Error getting user note status:", error);
+    return { pendingNotes: [], approvedNotes: [], error: error.message };
+  }
+};
+
     return { notes, error: null };
   } catch (error) {
-    console.error('Error getting pending notes:', error);
+    console.error("Error getting notes:", error);
     return { notes: [], error: error.message };
   }
 };
 
-// Get all notes (approved, pending, rejected)
-export const getAllNotesAdmin = async () => {
+// Get notes by filters
+export const getNotesByFilter = async (filters = {}) => {
   try {
-    const notesRef = collection(db, 'notes');
-    const q = query(notesRef, orderBy('createdAt', 'desc'));
+    const notesRef = collection(db, "notes");
+    let q = query(notesRef);
+
+    // Always filter by status if provided
+    if (filters.status) {
+      q = query(q, where("status", "==", filters.status.trim()));
+    } else {
+      q = query(q, where("status", "==", "approved"));
+    }
+
+    // Apply filters safely
+    if (filters.year) {
+      q = query(q, where("year", "==", filters.year.trim()));
+    }
+    if (filters.branch) {
+      q = query(q, where("branch", "==", filters.branch.trim()));
+    }
+    if (filters.semester) {
+      q = query(q, where("semester", "==", filters.semester.trim()));
+    }
+
+    // Order results
+    q = query(q, orderBy("createdAt", "desc"));
+
     const querySnapshot = await getDocs(q);
-    
     const notes = [];
     querySnapshot.forEach((doc) => {
       notes.push({ id: doc.id, ...doc.data() });
     });
-    
+
     return { notes, error: null };
   } catch (error) {
-    console.error('Error getting all notes:', error);
+    console.error("Error getting filtered notes:", error);
     return { notes: [], error: error.message };
   }
 };
 
-// Approve a note
-export const approveNote = async (noteId) => {
+// Get user's uploaded notes
+export const getUserUploadedNotes = async (userId) => {
   try {
-    const noteRef = doc(db, 'notes', noteId);
-    await updateDoc(noteRef, {
-      status: 'approved',
-      approvedAt: new Date(),
-      updatedAt: new Date()
-    });
-    return { error: null };
+    // Get user document to access approvedNotes
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return { notes: [], error: "User not found" };
+    }
+    
+    const userData = userSnap.data();
+    const approvedNotes = userData.approvedNotes || [];
+
+    return { notes: approvedNotes, error: null };
   } catch (error) {
-    console.error('Error approving note:', error);
-    return { error: error.message };
+    console.error("Error getting user uploaded notes:", error);
+    return { notes: [], error: error.message };
   }
 };
 
-// Deny access to a note
-export const denyNote = async (noteId, reason = '') => {
+// Create a new note (for users)
+export const createNote = async (noteData, userId) => {
   try {
-    const noteRef = doc(db, 'notes', noteId);
-    await updateDoc(noteRef, {
-      status: 'access denied',
-      denialReason: reason,
-      deniedAt: new Date(),
-      updatedAt: new Date()
-    });
-    return { error: null };
-  } catch (error) {
-    console.error('Error denying note:', error);
-    return { error: error.message };
-  }
-};
-export const updateNote = async (noteId, updatedFields) => {
-  try {
-    const noteRef = doc(db, "notes", noteId);
-    await updateDoc(noteRef, updatedFields);
-    return { error: null };
-  } catch (error) {
-    console.error("Error updating note:", error);
-    return { error: error.message };
-  }
-};
-
-export const getAllAccessRequests = async () => {
-  try {
-    const accessReqRef = collection(db, "accessRequests");
-    const q = query(accessReqRef, orderBy("createdAt", "desc"));
-    const querySnapshot = await getDocs(q);
-
-    const requests = [];
-    querySnapshot.forEach((doc) => {
-      requests.push({ id: doc.id, ...doc.data() });
-    });
-
-    return { requests, error: null };
-  } catch (error) {
-    console.error("Error getting access requests:", error);
-    return { requests: [], error: error.message };
-  }
-};
-
-// Approve access request
-export const approveAccessRequest = async (requestId) => {
-  try {
-    const reqRef = doc(db, "accessRequests", requestId);
-    await updateDoc(reqRef, {
-      status: "approved",
-      approvedAt: new Date(),
-      updatedAt: new Date(),
-    });
-    return { error: null };
-  } catch (error) {
-    console.error("Error approving access request:", error);
-    return { error: error.message };
-  }
-};
-
-// Deny access request with optional reason
-export const denyAccessRequest = async (requestId, reason = "") => {
-  try {
-    const reqRef = doc(db, "accessRequests", requestId);
-    await updateDoc(reqRef, {
-      status: "denied",
-      denialReason: reason,
-      deniedAt: new Date(),
-      updatedAt: new Date(),
-    });
-    return { error: null };
-  } catch (error) {
-    console.error("Error denying access request:", error);
-    return { error: error.message };
-  }
-};
-
-// Add a new access request (when user submits payment)
-export const createAccessRequest = async ({
-  userId,
-  userEmail,
-  requestedNotes,
-}) => {
-  try {
-    const accessReqRef = collection(db, "accessRequests");
-    const docRef = await addDoc(accessReqRef, {
-      userId,
-      userEmail,
-      requestedNotes,
+    const notesRef = collection(db, "notes");
+    const docRef = await addDoc(notesRef, {
+      ...noteData,
+      uploadedBy: userId,
       status: "pending",
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    return { id: docRef.id, error: null };
+
+    return { noteId: docRef.id, error: null };
   } catch (error) {
-    console.error("Error creating access request:", error);
-    return { id: null, error: error.message };
+    console.error("Error creating note:", error);
+    return { noteId: null, error: error.message };
   }
 };
+
+// Update user eligibility
+export const updateUserEligibility = async (userId, isEligible) => {
+  try {
+    const userRef = doc(db, "users", userId);
+    await updateDoc(userRef, {
+      isEligible: isEligible,
+      updatedAt: new Date(),
+    });
+    return { error: null };
+  } catch (error) {
+    console.error("Error updating user eligibility:", error);
+    return { error: error.message };
+  }
+};
+export const getUserAccessedNotes = async (userId) => {
+  try {
+    
+    // Move each requested note from pending to approved for the user
+    for (const noteData of requestData.requestedNotes) {
+      await approveUserNote(requestData.userId, noteData);
+    }
+    
