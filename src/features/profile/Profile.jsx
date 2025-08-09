@@ -14,7 +14,7 @@ import {
   arrayRemove,
   increment,
 } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db } from "../config/firebase.js";
 
 // Get all approved notes for regular users
 export const getAllNotes = async () => {
