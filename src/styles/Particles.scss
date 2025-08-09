@@ -1,0 +1,36 @@
+.particle-container {
+    position: fixed; // ⬅️ changed from absolute to fixed
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100%;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  
+  
+  .particle {
+    position: absolute;
+    border-radius: 50%;
+  }  
+  
+  @for $i from 1 through 30 {
+    @keyframes particle-animation-#{$i} {
+      100% {
+        transform: translate3d(random(90) * 1vw, random(90) * 1vh, random(100) * 1px);
+      }
+    }
+  
+    .particle:nth-child(#{$i}) {
+      $size: random(5) + 5 + px;
+      opacity: random() * 1;
+      height: $size;
+      width: $size;
+      animation: particle-animation-#{$i} 60s infinite;
+      animation-delay: -$i * 0.2s;
+      transform: translate3d(random(90) * 1vw, random(90) * 1vh, random(100) * 1px);
+      background: hsl(random(360), 70%, 50%);
+    }
+  }
+  

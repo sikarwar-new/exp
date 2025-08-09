@@ -1,0 +1,43 @@
+.how_it_works {
+    width: 20rem;
+    color: white;
+    border-radius: 5rem;
+    /* border: 3px solid white; */
+    display: block;
+    overflow: hidden;
+    text-align: center;
+    padding: 1rem;
+}
+
+.how_it_works img {
+    max-width: 100%;
+    height: auto;
+    border-radius: inherit;
+    display: block;
+  }
+  
+.how_it_works p {
+    font-size: 1.2em;
+    font-weight: 500;
+    color: black;
+}
+
+.how_it_works img {
+    box-shadow: 2px 2px 2px 2px gray;
+}
+
+.whyUs {
+    width: 15em;
+    border: 1px solid;
+    padding: 1em;
+    border-radius: 1em;
+    margin: 1em 2em;
+}
+
+.whyUs h3 {
+    margin-bottom: 1em;
+}
+
+.whyUs p {
+    margin-top: 1em;
+}

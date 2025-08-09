@@ -1,0 +1,48 @@
+body{
+    background: #0c0c0c;
+    font-family: "Ubuntu", sans-serif;
+    color: white;
+}
+
+ol li{
+    padding: 6px 15px;
+    transition: all 0.2s ease-out; 
+}
+
+ol li:hover {
+    border: 1px solid white;
+    border-radius: 2em;
+    background-color: whitesmoke;
+    color: #0c0c0c;
+    padding: 6px 15px;
+}
+
+header {
+    margin: 1em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+header button {
+    color: black;
+}
+
+nav {
+    background-color: #0c0c0c;
+    color: #9e9ea9;
+    border: 1px solid #eddddd;
+    display: flex;
+    align-items: center;
+    border-radius: 30px;
+    padding: 10px 20px;
+    height: 3rem;
+}
+.logo {
+    width: 2rem;
+}
+
+.text-gray {
+    color: #b2b2b2;
+}
