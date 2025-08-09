@@ -20,7 +20,12 @@ import { db } from "../config/firebase";
 export const getAllNotes = async () => {
   try {
     const notesRef = collection(db, "notes");
-    return { error: error.message };
+    const notesSnap = await getDocs(notesRef);
+    const notes = notesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    return { notes, error: null };
+  } catch (error) {
+    console.error("Error getting notes:", error);
+    return { notes: [], error: error.message };
   }
 };
 
@@ -74,13 +79,6 @@ export const getUserNoteStatus = async (userId) => {
   }
 };
 
-    return { notes, error: null };
-  } catch (error) {
-    console.error("Error getting notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
-
 // Get notes by filters
 export const getNotesByFilter = async (filters = {}) => {
   try {
@@ -101,6 +99,9 @@ export const getNotesByFilter = async (filters = {}) => {
     if (filters.branch) {
       q = query(q, where("branch", "==", filters.branch.trim()));
     }
+
+    const notesSnap = await getDocs(q);
+    const notes = notesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
     return { notes, error: null };
   } catch (error) {
@@ -165,9 +166,19 @@ export const updateUserEligibility = async (userId, isEligible) => {
 };
 export const getUserAccessedNotes = async (userId) => {
   try {
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return { notes: [], error: "User not found" };
+    }
+    
+    const userData = userSnap.data();
+    const notes = userData.accessedNotes || [];
 
     return { notes, error: null };
   } catch (error) {
     console.error("Error getting accessed notes:", error);
     return { notes: [], error: error.message };
   }
+};
