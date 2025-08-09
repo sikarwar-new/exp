@@ -20,59 +20,18 @@ import { db } from "../config/firebase";
 export const getAllNotes = async () => {
   try {
     const notesRef = collection(db, "notes");
-    return { error: error.message };
-  }
-};
+    const q = query(
+      notesRef,
+      where("status", "==", "approved"),
+      orderBy("createdAt", "desc")
+    );
 
-// Move note from pending to approved and update uploader earnings
-export const approveUserNote = async (userId, noteData) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    
-    // Remove from pendingNotes and add to approvedNotes
-    await updateDoc(userRef, {
-      pendingNotes: arrayRemove(noteData),
-      approvedNotes: arrayUnion(noteData),
-      updatedAt: new Date(),
+    const querySnapshot = await getDocs(q);
+
+    const notes = [];
+    querySnapshot.forEach((doc) => {
+      notes.push({ id: doc.id, ...doc.data() });
     });
-
-    // Update uploader's earnings
-    if (noteData.uploadedBy) {
-      const uploaderRef = doc(db, "users", noteData.uploadedBy);
-      await updateDoc(uploaderRef, {
-        earnings: increment(5),
-        updatedAt: new Date(),
-      });
-    }
-
-    return { error: null };
-  } catch (error) {
-    console.error("Error approving user note:", error);
-    return { error: error.message };
-  }
-};
-
-// Get user's pending and approved notes
-export const getUserNoteStatus = async (userId) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      return { pendingNotes: [], approvedNotes: [], error: "User not found" };
-    }
-    
-    const userData = userSnap.data();
-    return {
-      pendingNotes: userData.pendingNotes || [],
-      approvedNotes: userData.approvedNotes || [],
-      error: null
-    };
-  } catch (error) {
-    console.error("Error getting user note status:", error);
-    return { pendingNotes: [], approvedNotes: [], error: error.message };
-  }
-};
 
     return { notes, error: null };
   } catch (error) {
@@ -183,3 +142,5 @@ export const getUserAccessedNotes = async (userId) => {
     console.error("Error getting accessed notes:", error);
     return { notes: [], error: error.message };
   }
+
+}
