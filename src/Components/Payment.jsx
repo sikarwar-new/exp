@@ -10,7 +10,6 @@ export default function Payment() {
   const navigate = useNavigate();
   const { user, loggedIn } = useAuth();
   const { cartItems } = useCart();
-  const { cartItems } = location.state || { cartItems: [] };
   const [paymentId, setPaymentId] = useState("");
   const [error, setError] = useState("");
 
