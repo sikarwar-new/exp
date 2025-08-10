@@ -1,14 +1,25 @@
 import React, { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
+import { useCart } from "../contexts/CartContext";
 import Navbar from "./Navbar"; // Adjust path
 import QRCodeImage from "../assets/qr.svg"; // Add your QR code image in assets
 
 export default function Payment() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user, loggedIn } = useAuth();
+  const { cartItems } = useCart();
   const { cartItems } = location.state || { cartItems: [] };
   const [paymentId, setPaymentId] = useState("");
   const [error, setError] = useState("");
+
+  // Redirect if not logged in
+  React.useEffect(() => {
+    if (!loggedIn) {
+      navigate("/login");
+    }
+  }, [loggedIn, navigate]);
 
   const handleFakePayment = () => {
     if (!paymentId.trim()) {
@@ -16,23 +27,33 @@ export default function Payment() {
       return;
     }
     setError("");
-    // Here you might call a real payment verification or just simulate pending state
-    // For now, just navigate to pending/success page with purchase info & paymentId
+    
+    // Navigate to success page with purchase data
     navigate("/success", {
       state: {
-        purchasedItems: cartItems,
+        purchasedItems: cartItems.length > 0 ? cartItems : location.state?.cartItems || [],
         paymentId,
-        userEmail: "user@example.com",
+        userEmail: user?.email,
       },
     });
   };
+
+  if (!loggedIn) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-orange-500"></div>
+      </div>
+    );
+  }
+
+  const itemsToProcess = cartItems.length > 0 ? cartItems : location.state?.cartItems || [];
 
   return (
     <>
       <Navbar />
 
       <div className="min-h-screen bg-gradient-to-br from-orange-100 via-white to-orange-50 px-4 pt-24 flex justify-center">
-        {cartItems.length === 0 ? (
+        {itemsToProcess.length === 0 ? (
           <div className="max-w-md mx-auto p-6 bg-yellow-100 rounded-xl shadow-lg text-yellow-800 text-center">
             <p className="text-lg font-medium">
               Your cart is empty. Please add some notes before payment.
@@ -60,7 +81,7 @@ export default function Payment() {
               </p>
 
               <ul className="list-disc list-inside text-gray-700 max-h-48 overflow-y-auto space-y-2 px-4 max-w-md mx-auto lg:mx-0">
-                {cartItems.map((item) => (
+                {itemsToProcess.map((item) => (
                   <li key={item.title} className="text-base font-medium">
                     {item.title} — ₹{item.price} × {item.quantity || 1}
                   </li>

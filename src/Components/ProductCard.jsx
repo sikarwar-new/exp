@@ -1,196 +1,115 @@
-// Notes service functions for Firestore operations
-import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  query,
-  where,
-  orderBy,
-  arrayUnion,
-  arrayRemove,
-  increment,
-} from "firebase/firestore";
+import React, { useState, useEffect } from "react";
+import { useAuth } from "../contexts/AuthContext";
+import { useCart } from "../contexts/CartContext";
+import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../config/firebase";
 
-// Get all approved notes for regular users
-export const getAllNotes = async () => {
-  try {
-    const notesRef = collection(db, "notes");
-    const querySnapshot = await getDocs(query(notesRef, where("status", "==", "approved"), orderBy("createdAt", "desc")));
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
-    });
-    return { notes, error: null };
-  } catch (error) {
-    console.error("Error getting notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
+function ProductCard({ title, subject, numRatings, price, noteData, onAddToCart }) {
+  const { user, loggedIn } = useAuth();
+  const { addToCart, removeFromCart, isInCart } = useCart();
+  const [userDoc, setUserDoc] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-// Move note from pending to approved and update uploader earnings
-export const approveUserNote = async (userId, noteData) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    
-    // Remove from pendingNotes and add to approvedNotes
-    await updateDoc(userRef, {
-      pendingNotes: arrayRemove(noteData),
-      approvedNotes: arrayUnion(noteData),
-      updatedAt: new Date(),
+  // Real-time listener for user document
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const unsubscribe = onSnapshot(doc(db, "users", user.uid), (doc) => {
+      if (doc.exists()) {
+        setUserDoc(doc.data());
+      }
     });
 
-    // Update uploader's earnings
-    if (noteData.uploadedBy) {
-      const uploaderRef = doc(db, "users", noteData.uploadedBy);
-      await updateDoc(uploaderRef, {
-        earnings: increment(5),
-        updatedAt: new Date(),
-      });
+    return () => unsubscribe();
+  }, [user?.uid]);
+
+  const getButtonState = () => {
+    if (!loggedIn) {
+      return { text: "Login to Purchase", color: "bg-gray-400", disabled: true };
     }
 
-    return { error: null };
-  } catch (error) {
-    console.error("Error approving user note:", error);
-    return { error: error.message };
-  }
-};
+    if (!userDoc) {
+      return { text: "Loading...", color: "bg-gray-400", disabled: true };
+    }
 
-// Get user's pending and approved notes
-export const getUserNoteStatus = async (userId) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
+    // Check if note is in approvedNotes
+    const isApproved = userDoc.approvedNotes?.some(note => note.title === title);
+    if (isApproved) {
+      return { text: "Start Reading", color: "bg-green-500 hover:bg-green-600", disabled: false, action: "read" };
+    }
+
+    // Check if note is in pendingNotes
+    const isPending = userDoc.pendingNotes?.some(note => note.title === title);
+    if (isPending) {
+      return { text: "Pending", color: "bg-yellow-500", disabled: true };
+    }
+
+    // Check if note is in cart
+    if (isInCart(title)) {
+      return { text: "Remove Item", color: "bg-red-500 hover:bg-red-600", disabled: false, action: "remove" };
+    }
+
+    // Default: Add to Cart
+    return { text: "Add to Cart", color: "bg-orange-500 hover:bg-orange-600", disabled: false, action: "add" };
+  };
+
+  const handleButtonClick = () => {
+    const buttonState = getButtonState();
     
-    if (!userSnap.exists()) {
-      return { pendingNotes: [], approvedNotes: [], error: "User not found" };
+    if (buttonState.disabled) return;
+
+    switch (buttonState.action) {
+      case "read":
+        // Open drive link
+        const approvedNote = userDoc.approvedNotes?.find(note => note.title === title);
+        if (approvedNote?.driveLink) {
+          window.open(approvedNote.driveLink, '_blank');
+        }
+        break;
+      case "remove":
+        removeFromCart(title);
+        break;
+      case "add":
+        const cartItem = {
+          title,
+          subject,
+          price: price || 25,
+          quantity: 1,
+          ...noteData
+        };
+        addToCart(cartItem);
+        break;
     }
-    
-    const userData = userSnap.data();
-    return {
-      pendingNotes: userData.pendingNotes || [],
-      approvedNotes: userData.approvedNotes || [],
-      error: null
-    };
-  } catch (error) {
-    console.error("Error getting user note status:", error);
-    return { pendingNotes: [], approvedNotes: [], error: error.message };
-  }
-};
+  };
 
-// Get notes by filters
-export const getNotesByFilter = async (filters = {}) => {
-  try {
-    const notesRef = collection(db, "notes");
-    let q = query(notesRef);
+  const buttonState = getButtonState();
 
-    // Always filter by status if provided
-    if (filters.status) {
-      q = query(q, where("status", "==", filters.status.trim()));
-    } else {
-      q = query(q, where("status", "==", "approved"));
-    }
+  return (
+    <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow duration-300">
+      <div className="mb-4">
+        <h3 className="text-lg font-semibold text-gray-800 mb-2">{title}</h3>
+        <p className="text-gray-600 text-sm mb-2">{subject}</p>
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-gray-500">
+            {numRatings} reviews
+          </span>
+          <span className="text-lg font-bold text-orange-600">
+            ₹{price || 25}
+          </span>
+        </div>
+      </div>
+      
+      <button
+        onClick={handleButtonClick}
+        disabled={buttonState.disabled || loading}
+        className={`w-full py-2 px-4 rounded-md font-medium transition-colors duration-200 ${buttonState.color} text-white ${
+          buttonState.disabled ? 'cursor-not-allowed opacity-50' : ''
+        }`}
+      >
+        {loading ? 'Processing...' : buttonState.text}
+      </button>
+    </div>
+  );
+}
 
-    // Apply filters safely
-    if (filters.year) {
-      q = query(q, where("year", "==", filters.year.trim()));
-    }
-    if (filters.branch) {
-      q = query(q, where("branch", "==", filters.branch.trim()));
-    }
-    if (filters.semester) {
-      q = query(q, where("semester", "==", filters.semester.trim()));
-    }
-
-    // Order results
-    q = query(q, orderBy("createdAt", "desc"));
-
-    const querySnapshot = await getDocs(q);
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
-    });
-
-    return { notes, error: null };
-  } catch (error) {
-    console.error("Error getting filtered notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
-
-// Get user's uploaded notes
-export const getUserUploadedNotes = async (userId) => {
-  try {
-    // Get user document to access approvedNotes
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      return { notes: [], error: "User not found" };
-    }
-    
-    const userData = userSnap.data();
-    const approvedNotes = userData.approvedNotes || [];
-
-    return { notes: approvedNotes, error: null };
-  } catch (error) {
-    console.error("Error getting user uploaded notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
-
-// Create a new note (for users)
-export const createNote = async (noteData, userId) => {
-  try {
-    const notesRef = collection(db, "notes");
-    const docRef = await addDoc(notesRef, {
-      ...noteData,
-      uploadedBy: userId,
-      status: "pending",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    return { noteId: docRef.id, error: null };
-  } catch (error) {
-    console.error("Error creating note:", error);
-    return { noteId: null, error: error.message };
-  }
-};
-
-// Update user eligibility
-export const updateUserEligibility = async (userId, isEligible) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    await updateDoc(userRef, {
-      isEligible: isEligible,
-      updatedAt: new Date(),
-    });
-    return { error: null };
-  } catch (error) {
-    console.error("Error updating user eligibility:", error);
-    return { error: error.message };
-  }
-};
-export const getUserAccessedNotes = async (userId) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      return { notes: [], error: "User not found" };
-    }
-    
-    const userData = userSnap.data();
-    const notes = userData.accessedNotes || [];
-
-    return { notes, error: null };
-  } catch (error) {
-    console.error("Error getting accessed notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
+export default ProductCard;

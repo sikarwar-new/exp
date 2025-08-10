@@ -1,196 +1,126 @@
-// Notes service functions for Firestore operations
-import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  query,
-  where,
-  orderBy,
-  arrayUnion,
-  arrayRemove,
-  increment,
-} from "firebase/firestore";
+import React, { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
+import { useCart } from "../contexts/CartContext";
+import { doc, updateDoc, arrayUnion } from "firebase/firestore";
 import { db } from "../config/firebase";
 
-// Get all approved notes for regular users
-export const getAllNotes = async () => {
-  try {
-    const notesRef = collection(db, "notes");
-    const querySnapshot = await getDocs(query(notesRef, where("status", "==", "approved"), orderBy("createdAt", "desc")));
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
-    });
-    return { notes, error: null };
-  } catch (error) {
-    console.error("Error getting notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
+const Success = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { cartItems } = useCart();
+  const [processing, setProcessing] = useState(true);
+  const [error, setError] = useState("");
 
-// Move note from pending to approved and update uploader earnings
-export const approveUserNote = async (userId, noteData) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    
-    // Remove from pendingNotes and add to approvedNotes
-    await updateDoc(userRef, {
-      pendingNotes: arrayRemove(noteData),
-      approvedNotes: arrayUnion(noteData),
-      updatedAt: new Date(),
-    });
+  const { purchasedItems, paymentId } = location.state || {};
 
-    // Update uploader's earnings
-    if (noteData.uploadedBy) {
-      const uploaderRef = doc(db, "users", noteData.uploadedBy);
-      await updateDoc(uploaderRef, {
-        earnings: increment(5),
-        updatedAt: new Date(),
-      });
-    }
+  useEffect(() => {
+    const processPurchase = async () => {
+      if (!user || !purchasedItems || purchasedItems.length === 0) {
+        setError("Invalid purchase data");
+        setProcessing(false);
+        return;
+      }
 
-    return { error: null };
-  } catch (error) {
-    console.error("Error approving user note:", error);
-    return { error: error.message };
-  }
-};
+      try {
+        // Add purchased items to user's pendingNotes
+        const userRef = doc(db, "users", user.uid);
+        
+        const notesToAdd = purchasedItems.map(item => ({
+          title: item.title,
+          subject: item.subject,
+          price: item.price,
+          purchasedAt: new Date(),
+          paymentId: paymentId || "manual_payment",
+          status: "pending_approval"
+        }));
 
-// Get user's pending and approved notes
-export const getUserNoteStatus = async (userId) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      return { pendingNotes: [], approvedNotes: [], error: "User not found" };
-    }
-    
-    const userData = userSnap.data();
-    return {
-      pendingNotes: userData.pendingNotes || [],
-      approvedNotes: userData.approvedNotes || [],
-      error: null
+        await updateDoc(userRef, {
+          pendingNotes: arrayUnion(...notesToAdd),
+          updatedAt: new Date()
+        });
+
+        setProcessing(false);
+      } catch (err) {
+        console.error("Error processing purchase:", err);
+        setError("Failed to process purchase. Please contact support.");
+        setProcessing(false);
+      }
     };
-  } catch (error) {
-    console.error("Error getting user note status:", error);
-    return { pendingNotes: [], approvedNotes: [], error: error.message };
+
+    processPurchase();
+  }, [user, purchasedItems, paymentId]);
+
+  if (processing) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-green-100 via-white to-green-50 flex items-center justify-center px-4 pt-24">
+        <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-green-500 mx-auto mb-4"></div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Processing Purchase</h2>
+          <p className="text-gray-600">Please wait while we process your order...</p>
+        </div>
+      </div>
+    );
   }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-red-100 via-white to-red-50 flex items-center justify-center px-4 pt-24">
+        <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center">
+          <div className="text-red-500 text-6xl mb-4">❌</div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Purchase Failed</h2>
+          <p className="text-gray-600 mb-6">{error}</p>
+          <button
+            onClick={() => navigate("/")}
+            className="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-200"
+          >
+            Go to Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-green-100 via-white to-green-50 flex items-center justify-center px-4 pt-24">
+      <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center">
+        <div className="text-green-500 text-6xl mb-4">✅</div>
+        <h2 className="text-3xl font-bold text-gray-800 mb-4">Payment Successful!</h2>
+        <p className="text-gray-600 mb-6">
+          Your purchase has been completed successfully. The notes are now pending admin approval.
+        </p>
+        
+        {purchasedItems && (
+          <div className="bg-gray-50 rounded-lg p-4 mb-6">
+            <h3 className="font-semibold text-gray-800 mb-2">Purchased Items:</h3>
+            <ul className="text-sm text-gray-600 space-y-1">
+              {purchasedItems.map((item, index) => (
+                <li key={index}>
+                  {item.title} - ₹{item.price}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="space-y-3">
+          <button
+            onClick={() => navigate("/profile")}
+            className="w-full bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition duration-200"
+          >
+            Go to Profile
+          </button>
+          <button
+            onClick={() => navigate("/")}
+            className="w-full bg-gray-500 hover:bg-gray-600 text-white px-6 py-3 rounded-lg focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition duration-200"
+          >
+            Go to Home
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
-// Get notes by filters
-export const getNotesByFilter = async (filters = {}) => {
-  try {
-    const notesRef = collection(db, "notes");
-    let q = query(notesRef);
-
-    // Always filter by status if provided
-    if (filters.status) {
-      q = query(q, where("status", "==", filters.status.trim()));
-    } else {
-      q = query(q, where("status", "==", "approved"));
-    }
-
-    // Apply filters safely
-    if (filters.year) {
-      q = query(q, where("year", "==", filters.year.trim()));
-    }
-    if (filters.branch) {
-      q = query(q, where("branch", "==", filters.branch.trim()));
-    }
-    if (filters.semester) {
-      q = query(q, where("semester", "==", filters.semester.trim()));
-    }
-
-    // Order results
-    q = query(q, orderBy("createdAt", "desc"));
-
-    const querySnapshot = await getDocs(q);
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
-    });
-
-    return { notes, error: null };
-  } catch (error) {
-    console.error("Error getting filtered notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
-
-// Get user's uploaded notes
-export const getUserUploadedNotes = async (userId) => {
-  try {
-    // Get user document to access approvedNotes
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      return { notes: [], error: "User not found" };
-    }
-    
-    const userData = userSnap.data();
-    const approvedNotes = userData.approvedNotes || [];
-
-    return { notes: approvedNotes, error: null };
-  } catch (error) {
-    console.error("Error getting user uploaded notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
-
-// Create a new note (for users)
-export const createNote = async (noteData, userId) => {
-  try {
-    const notesRef = collection(db, "notes");
-    const docRef = await addDoc(notesRef, {
-      ...noteData,
-      uploadedBy: userId,
-      status: "pending",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    return { noteId: docRef.id, error: null };
-  } catch (error) {
-    console.error("Error creating note:", error);
-    return { noteId: null, error: error.message };
-  }
-};
-
-// Update user eligibility
-export const updateUserEligibility = async (userId, isEligible) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    await updateDoc(userRef, {
-      isEligible: isEligible,
-      updatedAt: new Date(),
-    });
-    return { error: null };
-  } catch (error) {
-    console.error("Error updating user eligibility:", error);
-    return { error: error.message };
-  }
-};
-export const getUserAccessedNotes = async (userId) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      return { notes: [], error: "User not found" };
-    }
-    
-    const userData = userSnap.data();
-    const notes = userData.accessedNotes || [];
-
-    return { notes, error: null };
-  } catch (error) {
-    console.error("Error getting accessed notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
+export default Success;

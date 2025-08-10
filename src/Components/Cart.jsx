@@ -1,196 +1,133 @@
-// Notes service functions for Firestore operations
-import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  query,
-  where,
-  orderBy,
-  arrayUnion,
-  arrayRemove,
-  increment,
-} from "firebase/firestore";
-import { db } from "../config/firebase";
+import React from "react";
+import { useNavigate } from "react-router-dom";
+import { useCart } from "../contexts/CartContext";
+import { useAuth } from "../contexts/AuthContext";
+import ProductCard from "./ProductCard";
 
-// Get all approved notes for regular users
-export const getAllNotes = async () => {
-  try {
-    const notesRef = collection(db, "notes");
-    const querySnapshot = await getDocs(query(notesRef, where("status", "==", "approved"), orderBy("createdAt", "desc")));
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
-    });
-    return { notes, error: null };
-  } catch (error) {
-    console.error("Error getting notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
+function Cart() {
+  const { cartItems, removeFromCart } = useCart();
+  const { loggedIn } = useAuth();
+  const navigate = useNavigate();
 
-// Move note from pending to approved and update uploader earnings
-export const approveUserNote = async (userId, noteData) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    
-    // Remove from pendingNotes and add to approvedNotes
-    await updateDoc(userRef, {
-      pendingNotes: arrayRemove(noteData),
-      approvedNotes: arrayUnion(noteData),
-      updatedAt: new Date(),
-    });
+  const totalPrice = cartItems.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
 
-    // Update uploader's earnings
-    if (noteData.uploadedBy) {
-      const uploaderRef = doc(db, "users", noteData.uploadedBy);
-      await updateDoc(uploaderRef, {
-        earnings: increment(5),
-        updatedAt: new Date(),
-      });
+  const handleCheckout = () => {
+    if (!loggedIn) {
+      navigate("/login");
+      return;
     }
 
-    return { error: null };
-  } catch (error) {
-    console.error("Error approving user note:", error);
-    return { error: error.message };
-  }
-};
-
-// Get user's pending and approved notes
-export const getUserNoteStatus = async (userId) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      return { pendingNotes: [], approvedNotes: [], error: "User not found" };
-    }
-    
-    const userData = userSnap.data();
-    return {
-      pendingNotes: userData.pendingNotes || [],
-      approvedNotes: userData.approvedNotes || [],
-      error: null
-    };
-  } catch (error) {
-    console.error("Error getting user note status:", error);
-    return { pendingNotes: [], approvedNotes: [], error: error.message };
-  }
-};
-
-// Get notes by filters
-export const getNotesByFilter = async (filters = {}) => {
-  try {
-    const notesRef = collection(db, "notes");
-    let q = query(notesRef);
-
-    // Always filter by status if provided
-    if (filters.status) {
-      q = query(q, where("status", "==", filters.status.trim()));
-    } else {
-      q = query(q, where("status", "==", "approved"));
+    if (cartItems.length === 0) {
+      return;
     }
 
-    // Apply filters safely
-    if (filters.year) {
-      q = query(q, where("year", "==", filters.year.trim()));
-    }
-    if (filters.branch) {
-      q = query(q, where("branch", "==", filters.branch.trim()));
-    }
-    if (filters.semester) {
-      q = query(q, where("semester", "==", filters.semester.trim()));
-    }
+    // Navigate to payment page with cart items
+    navigate("/payment", { state: { cartItems } });
+  };
 
-    // Order results
-    q = query(q, orderBy("createdAt", "desc"));
+  const handleRemoveItem = (title) => {
+    removeFromCart(title);
+  };
 
-    const querySnapshot = await getDocs(q);
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
-    });
+  return (
+    <div className="min-h-screen bg-gray-100 px-4 py-10">
+      <div className="max-w-6xl mx-auto">
+        <h1 className="text-3xl font-bold text-center mb-8">Shopping Cart</h1>
 
-    return { notes, error: null };
-  } catch (error) {
-    console.error("Error getting filtered notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
+        {cartItems.length === 0 ? (
+          <div className="text-center py-16">
+            <div className="mb-6">
+              <img
+                src="/src/assets/emptyCart.png"
+                alt="Empty Cart"
+                className="w-32 h-32 mx-auto opacity-50"
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                }}
+              />
+            </div>
+            <h2 className="text-2xl font-semibold text-gray-600 mb-4">Your cart is empty</h2>
+            <p className="text-gray-500 mb-6">Add some notes to get started!</p>
+            <button
+              onClick={() => navigate("/resources")}
+              className="bg-orange-500 text-white px-6 py-3 rounded-lg hover:bg-orange-600 transition"
+            >
+              Browse Notes
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Cart Items */}
+            <div className="lg:col-span-2">
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <h2 className="text-xl font-semibold mb-4">Items in Cart ({cartItems.length})</h2>
+                <div className="space-y-4">
+                  {cartItems.map((item) => (
+                    <div key={item.title} className="flex items-center justify-between border-b pb-4">
+                      <div className="flex-1">
+                        <h3 className="font-medium text-gray-800">{item.title}</h3>
+                        <p className="text-sm text-gray-600">{item.subject}</p>
+                        <p className="text-sm text-gray-500">Quantity: {item.quantity || 1}</p>
+                      </div>
+                      <div className="flex items-center space-x-4">
+                        <span className="font-semibold text-orange-600">
+                          ₹{item.price * (item.quantity || 1)}
+                        </span>
+                        <button
+                          onClick={() => handleRemoveItem(item.title)}
+                          className="text-red-500 hover:text-red-700 font-medium"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
 
-// Get user's uploaded notes
-export const getUserUploadedNotes = async (userId) => {
-  try {
-    // Get user document to access approvedNotes
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      return { notes: [], error: "User not found" };
-    }
-    
-    const userData = userSnap.data();
-    const approvedNotes = userData.approvedNotes || [];
+            {/* Order Summary */}
+            <div className="lg:col-span-1">
+              <div className="bg-white rounded-lg shadow-md p-6 sticky top-4">
+                <h2 className="text-xl font-semibold mb-4">Order Summary</h2>
+                <div className="space-y-2 mb-4">
+                  <div className="flex justify-between">
+                    <span>Subtotal:</span>
+                    <span>₹{totalPrice}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Processing Fee:</span>
+                    <span>₹0</span>
+                  </div>
+                  <hr className="my-2" />
+                  <div className="flex justify-between font-semibold text-lg">
+                    <span>Total:</span>
+                    <span className="text-orange-600">₹{totalPrice}</span>
+                  </div>
+                </div>
+                
+                <button
+                  onClick={handleCheckout}
+                  className="w-full bg-orange-500 text-white py-3 rounded-lg hover:bg-orange-600 transition font-medium"
+                >
+                  {loggedIn ? "Proceed to Payment" : "Login to Continue"}
+                </button>
 
-    return { notes: approvedNotes, error: null };
-  } catch (error) {
-    console.error("Error getting user uploaded notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
+                <div className="mt-4 text-center">
+                  <button
+                    onClick={() => navigate("/resources")}
+                    className="text-orange-500 hover:text-orange-600 font-medium"
+                  >
+                    Continue Shopping
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
-// Create a new note (for users)
-export const createNote = async (noteData, userId) => {
-  try {
-    const notesRef = collection(db, "notes");
-    const docRef = await addDoc(notesRef, {
-      ...noteData,
-      uploadedBy: userId,
-      status: "pending",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    return { noteId: docRef.id, error: null };
-  } catch (error) {
-    console.error("Error creating note:", error);
-    return { noteId: null, error: error.message };
-  }
-};
-
-// Update user eligibility
-export const updateUserEligibility = async (userId, isEligible) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    await updateDoc(userRef, {
-      isEligible: isEligible,
-      updatedAt: new Date(),
-    });
-    return { error: null };
-  } catch (error) {
-    console.error("Error updating user eligibility:", error);
-    return { error: error.message };
-  }
-};
-export const getUserAccessedNotes = async (userId) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      return { notes: [], error: "User not found" };
-    }
-    
-    const userData = userSnap.data();
-    const accessedNotes = userData.accessedNotes || [];
-
-    return { notes: accessedNotes, error: null };
-  } catch (error) {
-    console.error("Error getting user accessed notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
+export default Cart;

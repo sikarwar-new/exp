@@ -41,9 +41,6 @@ function Result() {
     fetchNotes();
   }, [year, branch, semester]);
 
-  const handleAddToCart = (course) => {
-    console.log("Add to cart clicked for:", course.title);
-  };
 
   if (loading) {
     return (
@@ -67,15 +64,14 @@ function Result() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 max-w-6xl mx-auto">
         {notes.length > 0 ? (
-          notes.map((course) => (
+          notes.map((note) => (
             <ProductCard
-              key={course.id}
-              title={course.title}
-              subject={course.subject || "General"}
-              numRatings={course.ratings?.length || 0}
-              price={course.price}
-              btn={"Add to Cart"}
-              onAddToCart={() => handleAddToCart(course)}
+              key={note.id}
+              title={note.title}
+              subject={note.subject || "General"}
+              numRatings={note.ratings?.length || 0}
+              price={note.price || 25}
+              noteData={note}
             />
           ))
         ) : (

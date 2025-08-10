@@ -1,163 +1,183 @@
-// Notes service functions for Firestore operations
 import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  query,
-  where,
-  orderBy,
-  arrayUnion,
-  arrayRemove,
-  increment,
-} from "firebase/firestore";
-import { db } from "../config/firebase";
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged,
+  updateProfile
+} from "firebase/auth";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { auth, db, googleProvider } from "../config/firebase";
 
-// Get all approved notes for regular users
-export const getAllNotes = async () => {
+// Admin emails list
+const ADMIN_EMAILS = [
+  "admin@example.com",
+  "admin@collabenote.com"
+];
+
+// Check if email is admin
+export const checkAdminStatus = async (email) => {
+  return ADMIN_EMAILS.includes(email?.toLowerCase());
+};
+
+// Sign in with email and password
+export const signInWithEmail = async (email, password, isAdminLogin = false) => {
   try {
-    const notesRef = collection(db, "notes");
-    const q = query(
-      notesRef,
-      where("status", "==", "approved"),
-      orderBy("createdAt", "desc")
-    );
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
 
-    const querySnapshot = await getDocs(q);
+    // Check admin status
+    const isAdmin = await checkAdminStatus(user.email);
+    
+    if (isAdminLogin && !isAdmin) {
+      await signOut(auth);
+      return { user: null, error: "Access denied. Admin privileges required." };
+    }
 
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
-    });
+    if (!isAdminLogin && !isAdmin) {
+      // Create user document if it doesn't exist (for regular users)
+      await createUserDocument(user);
+    }
 
-    return { notes, error: null };
+    return { user, error: null };
   } catch (error) {
-    console.error("Error getting notes:", error);
-    return { notes: [], error: error.message };
+    console.error("Sign in error:", error);
+    return { user: null, error: getAuthErrorMessage(error.code) };
   }
 };
 
-// Get notes by filters
-export const getNotesByFilter = async (filters = {}) => {
+// Sign up with email and password (only for regular users)
+export const signUpWithEmail = async (email, password, displayName) => {
   try {
-    const notesRef = collection(db, "notes");
-    let q = query(notesRef);
-
-    // Always filter by status if provided
-    if (filters.status) {
-      q = query(q, where("status", "==", filters.status.trim()));
-    } else {
-      q = query(q, where("status", "==", "approved"));
+    // Check if trying to create admin account
+    const isAdmin = await checkAdminStatus(email);
+    if (isAdmin) {
+      return { user: null, error: "Admin accounts cannot be created through signup." };
     }
 
-    // Apply filters safely
-    if (filters.year) {
-      q = query(q, where("year", "==", filters.year.trim()));
-    }
-    if (filters.branch) {
-      q = query(q, where("branch", "==", filters.branch.trim()));
-    }
-    if (filters.semester) {
-      q = query(q, where("semester", "==", filters.semester.trim()));
-    }
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
 
-    // Order results
-    q = query(q, orderBy("createdAt", "desc"));
+    // Update profile with display name
+    await updateProfile(user, { displayName });
 
-    const querySnapshot = await getDocs(q);
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
-    });
+    // Create user document
+    await createUserDocument(user, { displayName });
 
-    return { notes, error: null };
+    return { user, error: null };
   } catch (error) {
-    console.error("Error getting filtered notes:", error);
-    return { notes: [], error: error.message };
+    console.error("Sign up error:", error);
+    return { user: null, error: getAuthErrorMessage(error.code) };
   }
 };
 
-// Get user's uploaded notes
-export const getUserUploadedNotes = async (userId) => {
+// Sign in with Google
+export const signInWithGoogle = async (isAdminLogin = false) => {
   try {
-    const notesRef = collection(db, "notes");
-    const q = query(
-      notesRef,
-      where("uploadedBy", "==", userId),
-      orderBy("createdAt", "desc")
-    );
-    const querySnapshot = await getDocs(q);
+    const result = await signInWithPopup(auth, googleProvider);
+    const user = result.user;
 
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
-    });
+    // Check admin status
+    const isAdmin = await checkAdminStatus(user.email);
+    
+    if (isAdminLogin && !isAdmin) {
+      await signOut(auth);
+      return { user: null, error: "Access denied. Admin privileges required." };
+    }
 
-    return { notes, error: null };
+    if (!isAdminLogin && !isAdmin) {
+      // Create user document if it doesn't exist (for regular users)
+      await createUserDocument(user);
+    }
+
+    return { user, error: null };
   } catch (error) {
-    console.error("Error getting user uploaded notes:", error);
-    return { notes: [], error: error.message };
+    console.error("Google sign in error:", error);
+    return { user: null, error: getAuthErrorMessage(error.code) };
   }
 };
 
-// Create a new note (for users)
-export const createNote = async (noteData, userId) => {
+// Sign out
+export const logOut = async () => {
   try {
-    const notesRef = collection(db, "notes");
-    const docRef = await addDoc(notesRef, {
-      ...noteData,
-      uploadedBy: userId,
-      status: "pending",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    return { noteId: docRef.id, error: null };
-  } catch (error) {
-    console.error("Error creating note:", error);
-    return { noteId: null, error: error.message };
-  }
-};
-
-// Update user eligibility
-export const updateUserEligibility = async (userId, isEligible) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    await updateDoc(userRef, {
-      isEligible: isEligible,
-      updatedAt: new Date(),
-    });
+    await signOut(auth);
     return { error: null };
   } catch (error) {
-    console.error("Error updating user eligibility:", error);
+    console.error("Sign out error:", error);
     return { error: error.message };
   }
 };
-export const getUserAccessedNotes = async (userId) => {
-  try {
 
-    return { notes, error: null };
-  } catch (error) {
-    console.error("Error getting accessed notes:", error);
-    return { notes: [], error: error.message };
+// Auth state change listener
+export const onAuthStateChange = (callback) => {
+  return onAuthStateChanged(auth, callback);
+};
+
+// Create user document in Firestore
+const createUserDocument = async (user, additionalData = {}) => {
+  if (!user) return;
+
+  const userRef = doc(db, "users", user.uid);
+  const userSnap = await getDoc(userRef);
+
+  if (!userSnap.exists()) {
+    const { displayName, email, photoURL } = user;
+    
+    try {
+      await setDoc(userRef, {
+        displayName: displayName || additionalData.displayName || "",
+        email,
+        photoURL: photoURL || "",
+        pendingNotes: [],
+        approvedNotes: [],
+        uploadedNotes: [],
+        earnings: 0,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        ...additionalData
+      });
+    } catch (error) {
+      console.error("Error creating user document:", error);
+    }
   }
 };
-export const checkAdminStatus = async (userId) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
 
+// Get user document
+export const getUserDocument = async (uid) => {
+  if (!uid) return null;
+  
+  try {
+    const userRef = doc(db, "users", uid);
+    const userSnap = await getDoc(userRef);
+    
     if (userSnap.exists()) {
-      const data = userSnap.data();
-      return { isAdmin: !!data.isAdmin, error: null };
-    } else {
-      return { isAdmin: false, error: "User not found" };
+      return userSnap.data();
     }
+    return null;
   } catch (error) {
-    console.error("Error checking admin status:", error);
-    return { isAdmin: false, error: error.message };
+    console.error("Error getting user document:", error);
+    return null;
+  }
+};
+
+// Helper function to get user-friendly error messages
+const getAuthErrorMessage = (errorCode) => {
+  switch (errorCode) {
+    case "auth/user-not-found":
+      return "No account found with this email address.";
+    case "auth/wrong-password":
+      return "Incorrect password.";
+    case "auth/email-already-in-use":
+      return "An account with this email already exists.";
+    case "auth/weak-password":
+      return "Password should be at least 6 characters.";
+    case "auth/invalid-email":
+      return "Invalid email address.";
+    case "auth/too-many-requests":
+      return "Too many failed attempts. Please try again later.";
+    case "auth/popup-closed-by-user":
+      return "Sign-in popup was closed before completion.";
+    default:
+      return "An error occurred during authentication.";
   }
 };

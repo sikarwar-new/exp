@@ -1,196 +1,205 @@
-// Notes service functions for Firestore operations
-import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  query,
-  where,
-  orderBy,
-  arrayUnion,
-  arrayRemove,
-  increment,
-} from "firebase/firestore";
-import { db } from "../../config/firebase.js";
+import React, { useState, useEffect } from "react";
+import { useAuth } from "../../contexts/AuthContext";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "../../config/firebase";
 
-// Get all approved notes for regular users
-export const getAllNotes = async () => {
-  try {
-    const notesRef = collection(db, "notes");
-    const querySnapshot = await getDocs(query(notesRef, where("status", "==", "approved"), orderBy("createdAt", "desc")));
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
-    });
-    return { notes, error: null };
-  } catch (error) {
-    console.error("Error getting notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
+function Profile() {
+  const { user, loggedIn } = useAuth();
+  const [userDoc, setUserDoc] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("accessed");
 
-// Move note from pending to approved and update uploader earnings
-export const approveUserNote = async (userId, noteData) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    
-    // Remove from pendingNotes and add to approvedNotes
-    await updateDoc(userRef, {
-      pendingNotes: arrayRemove(noteData),
-      approvedNotes: arrayUnion(noteData),
-      updatedAt: new Date(),
+  // Real-time listener for user document
+  useEffect(() => {
+    if (!user?.uid) {
+      setLoading(false);
+      return;
+    }
+
+    const unsubscribe = onSnapshot(doc(db, "users", user.uid), (doc) => {
+      if (doc.exists()) {
+        setUserDoc(doc.data());
+      } else {
+        setUserDoc(null);
+      }
+      setLoading(false);
     });
 
-    // Update uploader's earnings
-    if (noteData.uploadedBy) {
-      const uploaderRef = doc(db, "users", noteData.uploadedBy);
-      await updateDoc(uploaderRef, {
-        earnings: increment(5),
-        updatedAt: new Date(),
-      });
-    }
+    return () => unsubscribe();
+  }, [user?.uid]);
 
-    return { error: null };
-  } catch (error) {
-    console.error("Error approving user note:", error);
-    return { error: error.message };
+  const handleOpenNote = (driveLink) => {
+    if (driveLink) {
+      window.open(driveLink, '_blank');
+    }
+  };
+
+  if (!loggedIn) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="bg-white shadow-lg rounded-xl p-6 text-center border border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Login Required</h2>
+          <p className="text-gray-600 mb-4">You need to be logged in to view your profile.</p>
+          <a
+            href="/login"
+            className="inline-block px-6 py-2 bg-orange-500 text-white rounded-md shadow hover:bg-orange-600 transition"
+          >
+            Login
+          </a>
+        </div>
+      </div>
+    );
   }
-};
 
-// Get user's pending and approved notes
-export const getUserNoteStatus = async (userId) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      return { pendingNotes: [], approvedNotes: [], error: "User not found" };
-    }
-    
-    const userData = userSnap.data();
-    return {
-      pendingNotes: userData.pendingNotes || [],
-      approvedNotes: userData.approvedNotes || [],
-      error: null
-    };
-  } catch (error) {
-    console.error("Error getting user note status:", error);
-    return { pendingNotes: [], approvedNotes: [], error: error.message };
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-orange-500"></div>
+      </div>
+    );
   }
-};
 
-// Get notes by filters
-export const getNotesByFilter = async (filters = {}) => {
-  try {
-    const notesRef = collection(db, "notes");
-    let q = query(notesRef);
+  const approvedNotes = userDoc?.approvedNotes || [];
+  const pendingNotes = userDoc?.pendingNotes || [];
+  const earnings = userDoc?.earnings || 0;
 
-    // Always filter by status if provided
-    if (filters.status) {
-      q = query(q, where("status", "==", filters.status.trim()));
-    } else {
-      q = query(q, where("status", "==", "approved"));
-    }
+  return (
+    <div className="min-h-screen bg-gray-100 py-8 px-4">
+      <div className="max-w-6xl mx-auto">
+        {/* Profile Header */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <div className="flex items-center space-x-4">
+            <img
+              src={user?.photoURL || "https://placehold.co/80x80"}
+              alt="Profile"
+              className="w-20 h-20 rounded-full object-cover border-4 border-orange-500"
+            />
+            <div>
+              <h1 className="text-3xl font-bold text-gray-800">
+                {user?.displayName || "User"}
+              </h1>
+              <p className="text-gray-600">{user?.email}</p>
+              <div className="mt-2">
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                  Total Earnings: ₹{earnings}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
 
-    // Apply filters safely
-    if (filters.year) {
-      q = query(q, where("year", "==", filters.year.trim()));
-    }
-    if (filters.branch) {
-      q = query(q, where("branch", "==", filters.branch.trim()));
-    }
-    if (filters.semester) {
-      q = query(q, where("semester", "==", filters.semester.trim()));
-    }
+        {/* Navigation Tabs */}
+        <div className="bg-white rounded-lg shadow-md mb-6">
+          <div className="border-b border-gray-200">
+            <nav className="flex space-x-8 px-6">
+              <button
+                onClick={() => setActiveTab("accessed")}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === "accessed"
+                    ? "border-orange-500 text-orange-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}
+              >
+                Accessed Notes ({approvedNotes.length})
+              </button>
+              <button
+                onClick={() => setActiveTab("pending")}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === "pending"
+                    ? "border-orange-500 text-orange-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}
+              >
+                Pending Approval ({pendingNotes.length})
+              </button>
+            </nav>
+          </div>
 
-    // Order results
-    q = query(q, orderBy("createdAt", "desc"));
+          <div className="p-6">
+            {activeTab === "accessed" && (
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Accessed Notes</h2>
+                {approvedNotes.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500 mb-4">No approved notes yet.</p>
+                    <a
+                      href="/resources"
+                      className="inline-block bg-orange-500 text-white px-6 py-2 rounded-md hover:bg-orange-600 transition"
+                    >
+                      Browse Notes
+                    </a>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {approvedNotes.map((note, index) => (
+                      <div key={index} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition">
+                        <h3 className="font-semibold text-gray-800 mb-2">{note.title}</h3>
+                        <p className="text-sm text-gray-600 mb-2">{note.subject}</p>
+                        <p className="text-sm text-gray-500 mb-3">
+                          Purchased: {new Date(note.purchasedAt?.toDate ? note.purchasedAt.toDate() : note.purchasedAt).toLocaleDateString()}
+                        </p>
+                        <button
+                          onClick={() => handleOpenNote(note.driveLink)}
+                          className="w-full bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600 transition font-medium"
+                        >
+                          Start Reading
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
-    const querySnapshot = await getDocs(q);
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
-    });
+            {activeTab === "pending" && (
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Pending Approval</h2>
+                {pendingNotes.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500">No pending notes.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {pendingNotes.map((note, index) => (
+                      <div key={index} className="border border-gray-200 rounded-lg p-4 bg-yellow-50">
+                        <h3 className="font-semibold text-gray-800 mb-2">{note.title}</h3>
+                        <p className="text-sm text-gray-600 mb-2">{note.subject}</p>
+                        <p className="text-sm text-gray-500 mb-3">
+                          Purchased: {new Date(note.purchasedAt?.toDate ? note.purchasedAt.toDate() : note.purchasedAt).toLocaleDateString()}
+                        </p>
+                        <div className="w-full bg-yellow-500 text-white py-2 px-4 rounded-md text-center font-medium">
+                          Pending Admin Approval
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
 
-    return { notes, error: null };
-  } catch (error) {
-    console.error("Error getting filtered notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
+        {/* Earnings Summary */}
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h2 className="text-xl font-semibold mb-4">Earnings Summary</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-green-50 rounded-lg p-4 text-center">
+              <h3 className="text-2xl font-bold text-green-600">₹{earnings}</h3>
+              <p className="text-sm text-gray-600">Total Earnings</p>
+            </div>
+            <div className="bg-blue-50 rounded-lg p-4 text-center">
+              <h3 className="text-2xl font-bold text-blue-600">{approvedNotes.length}</h3>
+              <p className="text-sm text-gray-600">Notes Accessed</p>
+            </div>
+            <div className="bg-yellow-50 rounded-lg p-4 text-center">
+              <h3 className="text-2xl font-bold text-yellow-600">{pendingNotes.length}</h3>
+              <p className="text-sm text-gray-600">Pending Approval</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-// Get user's uploaded notes
-export const getUserUploadedNotes = async (userId) => {
-  try {
-    // Get user document to access approvedNotes
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      return { notes: [], error: "User not found" };
-    }
-    
-    const userData = userSnap.data();
-    const approvedNotes = userData.approvedNotes || [];
-
-    return { notes: approvedNotes, error: null };
-  } catch (error) {
-    console.error("Error getting user uploaded notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
-
-// Create a new note (for users)
-export const createNote = async (noteData, userId) => {
-  try {
-    const notesRef = collection(db, "notes");
-    const docRef = await addDoc(notesRef, {
-      ...noteData,
-      uploadedBy: userId,
-      status: "pending",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    return { noteId: docRef.id, error: null };
-  } catch (error) {
-    console.error("Error creating note:", error);
-    return { noteId: null, error: error.message };
-  }
-};
-
-// Update user eligibility
-export const updateUserEligibility = async (userId, isEligible) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    await updateDoc(userRef, {
-      isEligible: isEligible,
-      updatedAt: new Date(),
-    });
-    return { error: null };
-  } catch (error) {
-    console.error("Error updating user eligibility:", error);
-    return { error: error.message };
-  }
-};
-export const getUserAccessedNotes = async (userId) => {
-  try {
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      return { notes: [], error: "User not found" };
-    }
-    
-    const userData = userSnap.data();
-    const accessedNotes = userData.accessedNotes || [];
-
-    return { notes: accessedNotes, error: null };
-  } catch (error) {
-    console.error("Error getting user accessed notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
+export default Profile;
